@@ -304,11 +304,11 @@ export default function App() {
 
     // Stars
     const stars = [];
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 300; i++) {
       stars.push({
         x: Math.random() * GAME_WIDTH,
         y: Math.random() * GAME_HEIGHT,
-        size: Math.random() * 2,
+        size: Math.random() * 3,
         opacity: Math.random()
       });
     }
@@ -659,17 +659,17 @@ export default function App() {
     citiesRef.current.forEach(city => {
       if (!city.destroyed) {
         ctx.fillStyle = '#3b82f6';
-        ctx.fillRect(city.x - 15, city.y, 30, 20);
+        ctx.fillRect(city.x - 30, city.y, 60, 40);
         ctx.fillStyle = '#60a5fa';
-        ctx.fillRect(city.x - 10, city.y - 10, 20, 10);
+        ctx.fillRect(city.x - 20, city.y - 20, 40, 20);
         
         // City Lights
         ctx.fillStyle = '#fef08a';
-        ctx.fillRect(city.x - 8, city.y - 5, 4, 4);
-        ctx.fillRect(city.x + 4, city.y - 5, 4, 4);
+        ctx.fillRect(city.x - 16, city.y - 10, 8, 8);
+        ctx.fillRect(city.x + 8, city.y - 10, 8, 8);
       } else {
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(city.x - 15, city.y + 10, 30, 10);
+        ctx.fillRect(city.x - 30, city.y + 20, 60, 20);
       }
     });
 
@@ -679,31 +679,31 @@ export default function App() {
       if (!turret.destroyed) {
         // High-tech base
         ctx.fillStyle = '#334155';
-        ctx.fillRect(turret.x - 25, turret.y + 10, 50, 15);
+        ctx.fillRect(turret.x - 50, turret.y + 10, 100, 30);
         
         // Flashing Core
         ctx.fillStyle = turretFlash ? '#38bdf8' : '#0369a1';
         ctx.beginPath();
-        ctx.arc(turret.x, turret.y + 10, 10, 0, Math.PI * 2);
+        ctx.arc(turret.x, turret.y + 10, 20, 0, Math.PI * 2);
         ctx.fill();
         
         // Cannon
         ctx.strokeStyle = '#94a3b8';
-        ctx.lineWidth = 8;
+        ctx.lineWidth = 16;
         ctx.beginPath();
         ctx.moveTo(turret.x, turret.y + 10);
-        ctx.lineTo(turret.x, turret.y - 20);
+        ctx.lineTo(turret.x, turret.y - 50);
         ctx.stroke();
 
         // Ammo indicator
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px monospace';
+        ctx.font = 'bold 16px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(turret.ammo.toString(), turret.x, turret.y + 45);
+        ctx.fillText(turret.ammo.toString(), turret.x, turret.y + 70);
       } else {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
-        ctx.arc(turret.x, turret.y + 10, 15, 0, Math.PI * 2);
+        ctx.arc(turret.x, turret.y + 10, 30, 0, Math.PI * 2);
         ctx.fill();
       }
     });
@@ -736,28 +736,21 @@ export default function App() {
       }
 
       ctx.restore();
-      
-      // Trail
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
-      ctx.beginPath();
-      ctx.moveTo(enemy.startX, enemy.startY);
-      ctx.lineTo(enemy.x, enemy.y);
-      ctx.stroke();
     });
 
     // Draw Coins
     fallingCoinsRef.current.forEach(coin => {
       ctx.fillStyle = '#fbbf24';
       ctx.beginPath();
-      ctx.arc(coin.x, coin.y, 8, 0, Math.PI * 2);
+      ctx.arc(coin.x, coin.y, 32, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#d97706';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 6;
       ctx.stroke();
       ctx.fillStyle = '#d97706';
-      ctx.font = 'bold 10px sans-serif';
+      ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('$', coin.x, coin.y + 4);
+      ctx.fillText('$', coin.x, coin.y + 14);
     });
 
     // Draw Angel Messages (Luffy)
