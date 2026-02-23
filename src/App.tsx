@@ -29,6 +29,8 @@ interface EnemyRocket extends GameObject {
   targetY: number;
   speed: number;
   progress: number; // 0 to 1
+  trajectoryType: 'linear' | 'parabola' | 'sine' | 'zigzag';
+  curveParam: number;
 }
 
 interface InterceptorMissile extends GameObject {
@@ -79,6 +81,7 @@ const WIN_SCORE = 5000;
 const SCORE_PER_KILL = 20;
 const COIN_VALUE = 100;
 const UFO_COOLDOWN = 30000;
+const SUN_WEAPON_COOLDOWN = 30000;
 
 const TRANSLATIONS = {
   zh: {
@@ -115,7 +118,7 @@ const TRANSLATIONS = {
     victory: 'Victory',
     defeat: 'Defeat',
     targetScore: 'Target Score',
-    angel: 'Great Job!',
+    angel: "Great Job!",
   }
 };
 
@@ -142,7 +145,6 @@ export default function App() {
   const fallingCoinsRef = useRef<Coin[]>([]);
   const angelMessagesRef = useRef<AngelMessage[]>([]);
   const ufosDestroyedRef = useRef(0);
-  const solarFlashRef = useRef(0);
   
   const requestRef = useRef<number>(null);
   const gameStateRef = useRef<'menu' | 'playing' | 'win' | 'lose' | 'transition'>('menu');
@@ -152,6 +154,12 @@ export default function App() {
   const totalEnemiesInLevel = useRef(10);
   const lastUfoTimeRef = useRef<number>(0);
   const [ufoCooldownRemaining, setUfoCooldownRemaining] = useState(0);
+  const [sunFlashAlpha, setSunFlashAlpha] = useState(0);
+  const sunFlashAlphaRef = useRef(0);
+  const sunActiveRef = useRef(false);
+  const sunStartTimeRef = useRef(0);
+  const ufoActiveRef = useRef<boolean>(false);
+  const ufoXRef = useRef<number>(-100);
 
   const t = TRANSLATIONS[lang];
 
@@ -160,18 +168,27 @@ export default function App() {
     gameStateRef.current = gameState;
     
     if (gameState === 'playing') {
-      // Keydown listener removed as requested
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key.toLowerCase() === 'e') {
+          triggerSunWeapon();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
   }, [gameState]);
 
-  const triggerUfo = () => {
+  const triggerSunWeapon = () => {
     const now = performance.now();
-    if (lastUfoTimeRef.current !== 0 && now - lastUfoTimeRef.current < UFO_COOLDOWN) return;
+    if (lastUfoTimeRef.current !== 0 && now - lastUfoTimeRef.current < SUN_WEAPON_COOLDOWN) return;
 
     lastUfoTimeRef.current = now;
-    solarFlashRef.current = 1.0; // Trigger flash
+    sunActiveRef.current = true;
+    sunStartTimeRef.current = now;
+    sunFlashAlphaRef.current = 1;
+    setSunFlashAlpha(1);
 
-    // Destroy all enemies
+    // Destroy all enemies and convert to coins
     const chainExplosions: Explosion[] = [];
     enemiesRef.current.forEach(enemy => {
       scoreRef.current += SCORE_PER_KILL;
@@ -190,14 +207,14 @@ export default function App() {
         angelMessagesRef.current.push({
           id: `angel-${Date.now()}`,
           text: TRANSLATIONS[lang].angel,
-          x: GAME_WIDTH - 150,
+          x: GAME_WIDTH - 100,
           y: 150 + Math.random() * 100,
           alpha: 1
         });
       }
 
       chainExplosions.push({
-        id: `ufo-kill-${enemy.id}`,
+        id: `sun-kill-${enemy.id}`,
         x: enemy.x,
         y: enemy.y,
         radius: 0,
@@ -309,6 +326,13 @@ export default function App() {
     const target = targets[Math.floor(Math.random() * targets.length)];
     const startX = Math.random() * GAME_WIDTH;
     
+    const trajectoryTypes: ('linear' | 'parabola' | 'sine' | 'zigzag')[] = ['linear', 'parabola', 'sine', 'zigzag'];
+    const trajectoryType = trajectoryTypes[Math.floor(Math.random() * trajectoryTypes.length)];
+    let curveParam = 0;
+    if (trajectoryType === 'parabola') curveParam = (Math.random() - 0.5) * 200;
+    if (trajectoryType === 'sine') curveParam = 30 + Math.random() * 50;
+    if (trajectoryType === 'zigzag') curveParam = 20 + Math.random() * 30;
+
     const newEnemy: EnemyRocket = {
       id: Math.random().toString(36).substr(2, 9),
       startX: startX,
@@ -318,7 +342,9 @@ export default function App() {
       targetX: target.x,
       targetY: target.y,
       speed: 0.0004 + Math.random() * 0.0006 + (levelRef.current * 0.0002), 
-      progress: 0
+      progress: 0,
+      trajectoryType,
+      curveParam
     };
     enemiesRef.current.push(newEnemy);
     enemiesSpawnedInLevel.current++;
@@ -391,8 +417,30 @@ export default function App() {
       // Update Enemies
       enemiesRef.current = enemiesRef.current.filter(enemy => {
         enemy.progress += enemy.speed;
-        enemy.x = enemy.startX + (enemy.targetX - enemy.startX) * enemy.progress;
-        enemy.y = enemy.startY + (enemy.targetY - enemy.startY) * enemy.progress;
+        const baseX = enemy.startX + (enemy.targetX - enemy.startX) * enemy.progress;
+        const baseY = enemy.startY + (enemy.targetY - enemy.startY) * enemy.progress;
+
+        switch (enemy.trajectoryType) {
+          case 'parabola':
+            enemy.x = baseX + Math.sin(enemy.progress * Math.PI) * enemy.curveParam;
+            enemy.y = baseY;
+            break;
+          case 'sine':
+            enemy.x = baseX + Math.sin(enemy.progress * Math.PI * 6) * enemy.curveParam;
+            enemy.y = baseY;
+            break;
+          case 'zigzag':
+            // Triangle wave for zigzag
+            const triangle = Math.abs((enemy.progress * 10 % 2) - 1) * 2 - 1;
+            enemy.x = baseX + triangle * enemy.curveParam;
+            enemy.y = baseY;
+            break;
+          case 'linear':
+          default:
+            enemy.x = baseX;
+            enemy.y = baseY;
+            break;
+        }
 
         if (enemy.progress >= 1) {
           explosionsRef.current.push({
@@ -514,19 +562,30 @@ export default function App() {
 
       // Update Angel Messages
       angelMessagesRef.current = angelMessagesRef.current.filter(msg => {
-        msg.y -= 0.8;
-        msg.alpha -= 0.008;
+        msg.y -= 0.5;
+        msg.alpha -= 0.005;
         return msg.alpha > 0;
       });
-
-      // Update Solar Flash
-      if (solarFlashRef.current > 0) {
-        solarFlashRef.current -= 0.02;
-      }
 
       if (scoreGained > 0) {
         scoreRef.current += scoreGained;
         setScore(scoreRef.current);
+      }
+
+      // Update UFO
+      if (ufoActiveRef.current) {
+        ufoXRef.current += 12;
+        if (ufoXRef.current > GAME_WIDTH + 150) ufoActiveRef.current = false;
+      }
+
+      // Update Sun Weapon Flash
+      if (sunFlashAlphaRef.current > 0) {
+        sunFlashAlphaRef.current -= 0.02;
+        if (sunFlashAlphaRef.current < 0) sunFlashAlphaRef.current = 0;
+        setSunFlashAlpha(sunFlashAlphaRef.current);
+      }
+      if (sunActiveRef.current && time - sunStartTimeRef.current > 2000) {
+        sunActiveRef.current = false;
       }
 
       // Check Win/Loss/Transition
@@ -668,10 +727,9 @@ export default function App() {
       ctx.fill();
       
       // UFO Lights
-      const lightTime = performance.now() / 500; // Slower transition
+      const lightTime = performance.now() / 200;
       for (let i = 0; i < 4; i++) {
-        // More solid colors, less "flickery"
-        ctx.fillStyle = Math.sin(lightTime + i) > 0 ? '#ef4444' : '#f87171';
+        ctx.fillStyle = Math.sin(lightTime + i) > 0 ? '#f87171' : '#7f1d1d';
         ctx.beginPath();
         ctx.arc(-ufoSize + i * (ufoSize * 0.6), ufoSize * 0.2, 3, 0, Math.PI * 2);
         ctx.fill();
@@ -679,7 +737,12 @@ export default function App() {
 
       ctx.restore();
       
-      // Trail removed to avoid ghosting
+      // Trail
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
+      ctx.beginPath();
+      ctx.moveTo(enemy.startX, enemy.startY);
+      ctx.lineTo(enemy.x, enemy.y);
+      ctx.stroke();
     });
 
     // Draw Coins
@@ -700,53 +763,56 @@ export default function App() {
     // Draw Angel Messages (Luffy)
     angelMessagesRef.current.forEach(msg => {
       ctx.save();
+      ctx.translate(GAME_WIDTH - 80, msg.y);
       ctx.globalAlpha = msg.alpha;
-      
-      // Draw Luffy-like icon (Simplified)
-      const lx = msg.x - 40;
-      const ly = msg.y - 20;
-      
+
+      // Luffy Drawing
       // Straw Hat
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
-      ctx.ellipse(lx, ly, 25, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -10, 40, 15, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#ef4444'; // Red band
-      ctx.fillRect(lx - 15, ly - 5, 30, 3);
-      ctx.fillStyle = '#fde047';
-      ctx.beginPath();
-      ctx.arc(lx, ly - 5, 12, Math.PI, 0);
-      ctx.fill();
-
+      // Red Band
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-30, -12, 60, 4);
       // Face
       ctx.fillStyle = '#ffedd5';
       ctx.beginPath();
-      ctx.arc(lx, ly + 10, 12, 0, Math.PI * 2);
+      ctx.arc(0, 10, 25, 0, Math.PI * 2);
       ctx.fill();
-      
       // Smile
       ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(lx, ly + 12, 6, 0.2, Math.PI - 0.2);
+      ctx.arc(0, 15, 12, 0.2 * Math.PI, 0.8 * Math.PI);
       ctx.stroke();
+      // Eyes
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(-8, 5, 2, 0, Math.PI * 2);
+      ctx.arc(8, 5, 2, 0, Math.PI * 2);
+      ctx.fill();
 
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 18px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.shadowColor = '#000';
-      ctx.shadowBlur = 4;
-      ctx.fillText(msg.text, msg.x, msg.y);
+      // Text
+      ctx.fillStyle = `rgba(255, 255, 255, ${msg.alpha})`;
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(msg.text, -40, 20);
+      
       ctx.restore();
     });
 
     // Draw Missiles
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
     missilesRef.current.forEach(missile => {
-      // Trail removed to avoid ghosting
+      ctx.beginPath();
+      ctx.moveTo(missile.startX, missile.startY);
+      ctx.lineTo(missile.x, missile.y);
+      ctx.stroke();
 
       // Target X
       ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(missile.targetX - 5, missile.targetY - 5);
       ctx.lineTo(missile.targetX + 5, missile.targetY + 5);
@@ -757,39 +823,70 @@ export default function App() {
 
     // Draw Explosions
     explosionsRef.current.forEach(exp => {
-      ctx.save();
-      ctx.globalAlpha = exp.alpha;
-      
-      // Core
-      const grad = ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, exp.radius);
-      grad.addColorStop(0, '#fff');
-      grad.addColorStop(0.3, '#fbbf24');
-      grad.addColorStop(1, 'transparent');
-      ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${exp.alpha * 0.8})`;
       ctx.fill();
-      ctx.restore();
+      ctx.strokeStyle = `rgba(255, 100, 0, ${exp.alpha})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     });
 
-    // Solar Flash
-    if (solarFlashRef.current > 0) {
-      ctx.save();
-      ctx.fillStyle = `rgba(255, 255, 200, ${solarFlashRef.current})`;
-      ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-      
-      // Draw Sun in the middle
-      const sunX = GAME_WIDTH / 2;
-      const sunY = GAME_HEIGHT / 3;
-      const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 150);
-      sunGrad.addColorStop(0, `rgba(255, 255, 255, ${solarFlashRef.current})`);
-      sunGrad.addColorStop(0.5, `rgba(255, 255, 0, ${solarFlashRef.current * 0.8})`);
-      sunGrad.addColorStop(1, 'transparent');
-      ctx.fillStyle = sunGrad;
+    // Draw UFO
+    if (ufoActiveRef.current) {
+      const x = ufoXRef.current;
+      const y = 50;
+      ctx.fillStyle = '#10b981';
       ctx.beginPath();
-      ctx.arc(sunX, sunY, 150, 0, Math.PI * 2);
+      ctx.ellipse(x, y, 40, 15, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
+      ctx.fillStyle = '#60a5fa';
+      ctx.beginPath();
+      ctx.arc(x, y - 5, 15, 0, Math.PI, true);
+      ctx.fill();
+      
+      // UFO Lights
+      const time = performance.now() / 100;
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = Math.sin(time + i) > 0 ? '#fbbf24' : '#78350f';
+        ctx.beginPath();
+        ctx.arc(x - 25 + i * 12.5, y + 5, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Beam
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+      ctx.beginPath();
+      ctx.moveTo(x - 20, y + 15);
+      ctx.lineTo(x + 20, y + 15);
+      ctx.lineTo(x + 60, GAME_HEIGHT);
+      ctx.lineTo(x - 60, GAME_HEIGHT);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Draw Sun Weapon
+    if (sunActiveRef.current) {
+      const sunGlow = ctx.createRadialGradient(GAME_WIDTH / 2, 150, 20, GAME_WIDTH / 2, 150, 300);
+      sunGlow.addColorStop(0, 'rgba(255, 255, 200, 1)');
+      sunGlow.addColorStop(0.2, 'rgba(255, 200, 50, 0.8)');
+      sunGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
+      
+      ctx.fillStyle = sunGlow;
+      ctx.beginPath();
+      ctx.arc(GAME_WIDTH / 2, 150, 300, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(GAME_WIDTH / 2, 150, 60, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Full Screen Flash
+    if (sunFlashAlphaRef.current > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${sunFlashAlphaRef.current})`;
+      ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     }
   };
 
@@ -875,14 +972,12 @@ export default function App() {
         {gameState === 'playing' && (
           <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
             <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                triggerUfo();
-              }}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all cursor-pointer hover:scale-105 active:scale-95 ${ufoCooldownRemaining === 0 ? 'bg-orange-500/20 border-orange-500/40 text-orange-400' : 'bg-white/5 border-white/10 text-white/40'}`}
+              onClick={triggerSunWeapon}
+              disabled={ufoCooldownRemaining > 0}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all ${ufoCooldownRemaining === 0 ? 'bg-orange-500/20 border-orange-500/40 text-orange-400 hover:bg-orange-500/30 cursor-pointer' : 'bg-white/5 border-white/10 text-white/40 cursor-not-allowed'}`}
             >
               <Sun className={`w-4 h-4 ${ufoCooldownRemaining === 0 ? 'animate-spin-slow' : ''}`} />
-              <span className="text-xs font-bold uppercase tracking-wider">SOLAR</span>
+              <span className="text-xs font-bold uppercase tracking-wider">SOLAR [E]</span>
               {ufoCooldownRemaining > 0 && (
                 <span className="font-mono text-xs ml-1">{ufoCooldownRemaining}s</span>
               )}
@@ -918,7 +1013,7 @@ export default function App() {
                   </div>
                   <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                     <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">Missiles</div>
-                    <div className="text-2xl font-mono text-blue-400">80</div>
+                    <div className="text-2xl font-mono text-blue-400">240</div>
                   </div>
                 </div>
                 <button 
