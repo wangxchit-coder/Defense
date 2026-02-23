@@ -117,6 +117,7 @@ export default function App() {
   const explosionsRef = useRef<Explosion[]>([]);
   const citiesRef = useRef<City[]>([]);
   const turretsRef = useRef<Turret[]>([]);
+  const starsRef = useRef<{x: number, y: number, size: number, opacity: number}[]>([]);
   
   const requestRef = useRef<number>(null);
   const gameStateRef = useRef<'menu' | 'playing' | 'win' | 'lose' | 'transition'>('menu');
@@ -237,6 +238,18 @@ export default function App() {
       { id: 'right', x: GAME_WIDTH - 40, y: GAME_HEIGHT - 60, ammo: 20, maxAmmo: 20, destroyed: false },
     ];
 
+    // Stars
+    const stars = [];
+    for (let i = 0; i < 150; i++) {
+      stars.push({
+        x: Math.random() * GAME_WIDTH,
+        y: Math.random() * GAME_HEIGHT,
+        size: Math.random() * 2,
+        opacity: Math.random()
+      });
+    }
+    starsRef.current = stars;
+
     startLevel(1);
   }, [startLevel]);
 
@@ -297,19 +310,23 @@ export default function App() {
 
     if (availableTurrets.length > 0) {
       const turret = availableTurrets[0];
-      turret.ammo -= 1;
+      const shotCount = Math.min(turret.ammo, 3);
+      turret.ammo -= shotCount;
 
-      missilesRef.current.push({
-        id: Math.random().toString(36).substr(2, 9),
-        startX: turret.x,
-        startY: turret.y,
-        x: turret.x,
-        y: turret.y,
-        targetX,
-        targetY,
-        speed: 0.02,
-        progress: 0
-      });
+      for (let i = 0; i < shotCount; i++) {
+        const offset = (i - (shotCount - 1) / 2) * 20;
+        missilesRef.current.push({
+          id: Math.random().toString(36).substr(2, 9),
+          startX: turret.x,
+          startY: turret.y,
+          x: turret.x,
+          y: turret.y,
+          targetX: targetX + offset,
+          targetY: targetY,
+          speed: 0.02,
+          progress: 0
+        });
+      }
     }
   };
 
@@ -368,7 +385,7 @@ export default function App() {
             x: missile.targetX,
             y: missile.targetY,
             radius: 0,
-            maxRadius: 50,
+            maxRadius: 100, // Doubled from 50
             growing: true,
             alpha: 1
           });
@@ -459,11 +476,28 @@ export default function App() {
     if (!ctx) return;
 
     // Clear
-    ctx.fillStyle = '#0a0a0a';
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    // Draw Space Background (Stars & Nebula)
+    starsRef.current.forEach(star => {
+      ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Twinkle
+      if (Math.random() > 0.98) star.opacity = Math.random();
+    });
+
+    const gradient = ctx.createRadialGradient(GAME_WIDTH/2, GAME_HEIGHT/2, 0, GAME_WIDTH/2, GAME_HEIGHT/2, GAME_WIDTH);
+    gradient.addColorStop(0, 'rgba(30, 0, 60, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     // Draw Ground
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = '#111';
     ctx.fillRect(0, GAME_HEIGHT - 20, GAME_WIDTH, 20);
 
     // Draw Cities
@@ -504,18 +538,50 @@ export default function App() {
     });
 
     // Draw Enemies
-    ctx.strokeStyle = '#f97316';
-    ctx.lineWidth = 1;
     enemiesRef.current.forEach(enemy => {
+      const angle = Math.atan2(enemy.targetY - enemy.startY, enemy.targetX - enemy.startX);
+      
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.rotate(angle + Math.PI / 2);
+
+      // Rocket Body
+      ctx.fillStyle = '#94a3b8';
       ctx.beginPath();
-      ctx.moveTo(enemy.x - (enemy.targetX - enemy.x) * 0.1, enemy.y - (enemy.targetY - enemy.y) * 0.1);
+      ctx.moveTo(0, -10);
+      ctx.lineTo(4, 5);
+      ctx.lineTo(-4, 5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Fins
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-6, 2, 2, 4);
+      ctx.fillRect(4, 2, 2, 4);
+
+      // Flame
+      const flameHeight = 5 + Math.random() * 10;
+      const flameGrad = ctx.createLinearGradient(0, 5, 0, 5 + flameHeight);
+      flameGrad.addColorStop(0, '#fbbf24');
+      flameGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = flameGrad;
+      ctx.beginPath();
+      ctx.moveTo(-3, 5);
+      ctx.lineTo(3, 5);
+      ctx.lineTo(0, 5 + flameHeight);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+      
+      // Trail
+      ctx.strokeStyle = 'rgba(249, 115, 22, 0.3)';
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.startX, enemy.startY);
       ctx.lineTo(enemy.x, enemy.y);
       ctx.stroke();
-      
-      ctx.fillStyle = '#ea580c';
-      ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.setLineDash([]);
     });
 
     // Draw Missiles
