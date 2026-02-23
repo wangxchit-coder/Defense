@@ -238,7 +238,7 @@ export default function App() {
         setUfoCooldownRemaining(0);
       } else {
         const elapsed = now - lastUfoTimeRef.current;
-        const remaining = Math.max(0, Math.ceil((UFO_COOLDOWN - elapsed) / 1000));
+        const remaining = Math.max(0, Math.ceil((SUN_WEAPON_COOLDOWN - elapsed) / 1000));
         setUfoCooldownRemaining(remaining);
       }
     }, 100);
@@ -498,7 +498,7 @@ export default function App() {
           exp.radius += 2.5;
           if (exp.radius >= exp.maxRadius) exp.growing = false;
         } else {
-          exp.radius -= 1.2;
+          exp.radius = Math.max(0, exp.radius - 1.2);
           exp.alpha -= 0.025;
         }
 
@@ -643,16 +643,16 @@ export default function App() {
     // Draw Ground (Earth Arc)
     ctx.fillStyle = '#1e3a8a';
     ctx.beginPath();
-    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1050, 0, Math.PI * 2);
+    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1100, 0, Math.PI * 2);
     ctx.fill();
     
     // Earth Atmosphere Glow
-    const earthGlow = ctx.createRadialGradient(GAME_WIDTH/2, GAME_HEIGHT + 1000, 1050, GAME_WIDTH/2, GAME_HEIGHT + 1000, 1100);
+    const earthGlow = ctx.createRadialGradient(GAME_WIDTH/2, GAME_HEIGHT + 1000, 1100, GAME_WIDTH/2, GAME_HEIGHT + 1000, 1150);
     earthGlow.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
     earthGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = earthGlow;
     ctx.beginPath();
-    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1100, 0, Math.PI * 2);
+    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1150, 0, Math.PI * 2);
     ctx.fill();
 
     // Draw Cities
@@ -756,41 +756,58 @@ export default function App() {
     // Draw Angel Messages (Luffy)
     angelMessagesRef.current.forEach(msg => {
       ctx.save();
-      ctx.translate(GAME_WIDTH - 80, msg.y);
+      ctx.translate(GAME_WIDTH - 100, msg.y);
       ctx.globalAlpha = msg.alpha;
 
       // Luffy Drawing
       // Straw Hat
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
-      ctx.ellipse(0, -10, 40, 15, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -10, 45, 18, 0, 0, Math.PI * 2);
       ctx.fill();
       // Red Band
       ctx.fillStyle = '#ef4444';
-      ctx.fillRect(-30, -12, 60, 4);
+      ctx.fillRect(-32, -12, 64, 5);
       // Face
       ctx.fillStyle = '#ffedd5';
       ctx.beginPath();
-      ctx.arc(0, 10, 25, 0, Math.PI * 2);
+      ctx.arc(0, 12, 28, 0, Math.PI * 2);
       ctx.fill();
-      // Smile
+      // Iconic Wide Smile
       ctx.strokeStyle = '#000';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 15, 12, 0.2 * Math.PI, 0.8 * Math.PI);
+      ctx.arc(0, 15, 18, 0.1 * Math.PI, 0.9 * Math.PI);
       ctx.stroke();
-      // Eyes
+      // Teeth lines in smile
+      ctx.lineWidth = 1;
+      for(let i=-12; i<=12; i+=6) {
+          ctx.beginPath();
+          ctx.moveTo(i, 28);
+          ctx.lineTo(i, 33);
+          ctx.stroke();
+      }
+      // Eyes (Dotted)
       ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.arc(-8, 5, 2, 0, Math.PI * 2);
-      ctx.arc(8, 5, 2, 0, Math.PI * 2);
+      ctx.arc(-10, 8, 3, 0, Math.PI * 2);
+      ctx.arc(10, 8, 3, 0, Math.PI * 2);
       ctx.fill();
+      // Scar under eye
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-18, 18);
+      ctx.lineTo(-8, 21);
+      ctx.stroke();
 
       // Text
       ctx.fillStyle = `rgba(255, 255, 255, ${msg.alpha})`;
-      ctx.font = 'bold 20px sans-serif';
+      ctx.font = 'bold 24px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText(msg.text, -40, 20);
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(msg.text, -50, 25);
       
       ctx.restore();
     });
@@ -860,19 +877,21 @@ export default function App() {
 
     // Draw Sun Weapon
     if (sunActiveRef.current) {
-      const sunGlow = ctx.createRadialGradient(GAME_WIDTH / 2, 150, 20, GAME_WIDTH / 2, 150, 300);
-      sunGlow.addColorStop(0, 'rgba(255, 255, 200, 1)');
-      sunGlow.addColorStop(0.2, 'rgba(255, 200, 50, 0.8)');
-      sunGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
+      const sunGlow = ctx.createRadialGradient(GAME_WIDTH / 2, 150, 20, GAME_WIDTH / 2, 150, 400);
+      sunGlow.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      sunGlow.addColorStop(0.1, 'rgba(255, 255, 150, 1)');
+      sunGlow.addColorStop(0.3, 'rgba(255, 200, 50, 0.9)');
+      sunGlow.addColorStop(0.6, 'rgba(255, 100, 0, 0.5)');
+      sunGlow.addColorStop(1, 'rgba(255, 50, 0, 0)');
       
       ctx.fillStyle = sunGlow;
       ctx.beginPath();
-      ctx.arc(GAME_WIDTH / 2, 150, 300, 0, Math.PI * 2);
+      ctx.arc(GAME_WIDTH / 2, 150, 400, 0, Math.PI * 2);
       ctx.fill();
       
       ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(GAME_WIDTH / 2, 150, 60, 0, Math.PI * 2);
+      ctx.arc(GAME_WIDTH / 2, 150, 80, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -967,12 +986,20 @@ export default function App() {
             <button 
               onClick={triggerSunWeapon}
               disabled={ufoCooldownRemaining > 0}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all ${ufoCooldownRemaining === 0 ? 'bg-orange-500/20 border-orange-500/40 text-orange-400 hover:bg-orange-500/30 cursor-pointer' : 'bg-white/5 border-white/10 text-white/40 cursor-not-allowed'}`}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${ufoCooldownRemaining === 0 ? 'bg-orange-500/30 border-orange-400 text-orange-300 hover:bg-orange-500/40 hover:scale-105 cursor-pointer ring-2 ring-orange-500/20' : 'bg-white/5 border-white/10 text-white/40 cursor-not-allowed'}`}
             >
-              <Sun className={`w-4 h-4 ${ufoCooldownRemaining === 0 ? 'animate-spin-slow' : ''}`} />
-              <span className="text-xs font-bold uppercase tracking-wider">SOLAR [E]</span>
+              <div className="relative">
+                <Sun className={`w-6 h-6 ${ufoCooldownRemaining === 0 ? 'animate-spin-slow' : ''}`} />
+                {ufoCooldownRemaining === 0 && (
+                  <span className="absolute inset-0 bg-orange-400 blur-md opacity-50 animate-pulse rounded-full"></span>
+                )}
+              </div>
+              <div className="flex flex-col items-start leading-none">
+                <span className="text-[10px] font-black uppercase tracking-tighter opacity-70">ULTIMATE</span>
+                <span className="text-sm font-black tracking-widest">大招 [E]</span>
+              </div>
               {ufoCooldownRemaining > 0 && (
-                <span className="font-mono text-xs ml-1">{ufoCooldownRemaining}s</span>
+                <span className="font-mono text-sm font-bold ml-1 bg-black/40 px-2 py-0.5 rounded-md">{ufoCooldownRemaining}s</span>
               )}
             </button>
           </div>
