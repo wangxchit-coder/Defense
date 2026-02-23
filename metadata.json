@@ -1,5 +1,5 @@
 {
-  "name": "eason&nalu新星防御 (Nova Defense)",
-  "description": "A high-performance Missile Command style tower defense game built with React and Canvas.",
+  "name": "地球保卫战：星际对决 (Earth Defense: Star Wars)",
+  "description": "一款基于 React 和 Canvas 开发的高性能星际塔防游戏，包含路飞彩蛋、太阳大招及金币系统。",
   "requestFramePermissions": []
 }

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Target, Zap, Trophy, RefreshCw, AlertTriangle, Languages } from 'lucide-react';
+import { Shield, Target, Sun, Zap, Trophy, RefreshCw, AlertTriangle, Languages } from 'lucide-react';
 
 // --- Types & Constants ---
 
@@ -58,45 +58,64 @@ interface Turret extends GameObject {
   destroyed: boolean;
 }
 
+interface Coin {
+  id: string;
+  x: number;
+  y: number;
+  vy: number;
+}
+
+interface AngelMessage {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  alpha: number;
+}
+
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
-const WIN_SCORE = 1000;
+const WIN_SCORE = 5000;
 const SCORE_PER_KILL = 20;
+const COIN_VALUE = 100;
+const UFO_COOLDOWN = 30000;
 
 const TRANSLATIONS = {
   zh: {
-    title: 'eason&nalu 新星防御',
-    start: '开始游戏',
-    restart: '再玩一次',
-    win: '任务成功！新星已获救。',
-    lose: '防线崩溃！城市已沦陷。',
-    score: '得分',
-    ammo: '弹药',
-    level: '关卡',
-    nextLevel: '进入下一关',
-    levelComplete: '关卡完成',
-    bonus: '奖励得分',
-    howToPlay: '点击屏幕发射拦截导弹，摧毁落下的敌方火箭。',
-    victory: '胜利',
-    defeat: '失败',
-    targetScore: '目标得分',
+    title: '地球保卫战：星际对决',
+    start: '启动防御系统',
+    restart: '重新部署',
+    win: '地球安全了！指挥官。',
+    lose: '防线失守，地球正在陷落...',
+    score: '战功',
+    coins: '资源',
+    level: '波次',
+    nextLevel: '下一波攻势',
+    levelComplete: '波次清空',
+    bonus: '额外奖励',
+    howToPlay: '点击星空发射拦截弹，保护地球免受外星UFO侵袭。',
+    victory: '大捷',
+    defeat: '战败',
+    targetScore: '目标战功',
+    angel: '干得漂亮！',
   },
   en: {
-    title: 'eason&nalu Nova Defense',
-    start: 'Start Game',
-    restart: 'Play Again',
-    win: 'Mission Success! Nova is saved.',
-    lose: 'Defense Collapsed! Cities have fallen.',
+    title: 'Earth Defense: Star Wars',
+    start: 'Activate Defense',
+    restart: 'Redeploy',
+    win: 'Earth is safe! Commander.',
+    lose: 'Defense collapsed, Earth is falling...',
     score: 'Score',
-    ammo: 'Ammo',
-    level: 'Level',
-    nextLevel: 'Next Level',
-    levelComplete: 'Level Complete',
+    coins: 'Coins',
+    level: 'Wave',
+    nextLevel: 'Next Wave',
+    levelComplete: 'Wave Cleared',
     bonus: 'Bonus Points',
-    howToPlay: 'Click anywhere to fire interceptors and destroy incoming rockets.',
+    howToPlay: 'Click to fire interceptors and protect Earth from alien UFOs.',
     victory: 'Victory',
     defeat: 'Defeat',
     targetScore: 'Target Score',
+    angel: 'Great Job!',
   }
 };
 
@@ -107,17 +126,23 @@ export default function App() {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'win' | 'lose' | 'transition'>('menu');
   const [score, setScore] = useState(0);
   const scoreRef = useRef(0);
+  const [coins, setCoinScore] = useState(0);
+  const coinsTotalRef = useRef(0);
   const [level, setLevel] = useState(1);
   const levelRef = useRef(1);
   const [lang, setLang] = useState<Language>('zh');
   
-  // Game entities refs (to avoid React re-render overhead in loop)
+  // Game entities refs
   const enemiesRef = useRef<EnemyRocket[]>([]);
   const missilesRef = useRef<InterceptorMissile[]>([]);
   const explosionsRef = useRef<Explosion[]>([]);
   const citiesRef = useRef<City[]>([]);
   const turretsRef = useRef<Turret[]>([]);
   const starsRef = useRef<{x: number, y: number, size: number, opacity: number}[]>([]);
+  const fallingCoinsRef = useRef<Coin[]>([]);
+  const angelMessagesRef = useRef<AngelMessage[]>([]);
+  const ufosDestroyedRef = useRef(0);
+  const solarFlashRef = useRef(0);
   
   const requestRef = useRef<number>(null);
   const gameStateRef = useRef<'menu' | 'playing' | 'win' | 'lose' | 'transition'>('menu');
@@ -127,8 +152,6 @@ export default function App() {
   const totalEnemiesInLevel = useRef(10);
   const lastUfoTimeRef = useRef<number>(0);
   const [ufoCooldownRemaining, setUfoCooldownRemaining] = useState(0);
-  const ufoActiveRef = useRef<boolean>(false);
-  const ufoXRef = useRef<number>(-100);
 
   const t = TRANSLATIONS[lang];
 
@@ -137,34 +160,48 @@ export default function App() {
     gameStateRef.current = gameState;
     
     if (gameState === 'playing') {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key.toLowerCase() === 'e') {
-          triggerUfo();
-        }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
+      // Keydown listener removed as requested
     }
   }, [gameState]);
 
   const triggerUfo = () => {
     const now = performance.now();
-    if (now - lastUfoTimeRef.current < 60000) return;
+    if (lastUfoTimeRef.current !== 0 && now - lastUfoTimeRef.current < UFO_COOLDOWN) return;
 
     lastUfoTimeRef.current = now;
-    ufoActiveRef.current = true;
-    ufoXRef.current = -100;
+    solarFlashRef.current = 1.0; // Trigger flash
 
     // Destroy all enemies
     const chainExplosions: Explosion[] = [];
     enemiesRef.current.forEach(enemy => {
       scoreRef.current += SCORE_PER_KILL;
+      ufosDestroyedRef.current++;
+      
+      // Spawn coin
+      fallingCoinsRef.current.push({
+        id: `coin-${enemy.id}-${Math.random()}`,
+        x: enemy.x,
+        y: enemy.y,
+        vy: 2
+      });
+
+      // Luffy encouragement
+      if (ufosDestroyedRef.current % 5 === 0) {
+        angelMessagesRef.current.push({
+          id: `angel-${Date.now()}`,
+          text: TRANSLATIONS[lang].angel,
+          x: GAME_WIDTH - 150,
+          y: 150 + Math.random() * 100,
+          alpha: 1
+        });
+      }
+
       chainExplosions.push({
         id: `ufo-kill-${enemy.id}`,
         x: enemy.x,
         y: enemy.y,
         radius: 0,
-        maxRadius: 40,
+        maxRadius: 60,
         growing: true,
         alpha: 1
       });
@@ -180,9 +217,13 @@ export default function App() {
     
     const interval = setInterval(() => {
       const now = performance.now();
-      const elapsed = now - lastUfoTimeRef.current;
-      const remaining = Math.max(0, Math.ceil((60000 - elapsed) / 1000));
-      setUfoCooldownRemaining(remaining);
+      if (lastUfoTimeRef.current === 0) {
+        setUfoCooldownRemaining(0);
+      } else {
+        const elapsed = now - lastUfoTimeRef.current;
+        const remaining = Math.max(0, Math.ceil((UFO_COOLDOWN - elapsed) / 1000));
+        setUfoCooldownRemaining(remaining);
+      }
     }, 100);
     
     return () => clearInterval(interval);
@@ -214,9 +255,15 @@ export default function App() {
   const initGame = useCallback(() => {
     setScore(0);
     scoreRef.current = 0;
+    setCoinScore(0);
+    coinsTotalRef.current = 0;
     enemiesRef.current = [];
     missilesRef.current = [];
     explosionsRef.current = [];
+    fallingCoinsRef.current = [];
+    angelMessagesRef.current = [];
+    ufosDestroyedRef.current = 0;
+    lastUfoTimeRef.current = 0;
     
     // 6 Cities
     const cities: City[] = [];
@@ -233,9 +280,9 @@ export default function App() {
 
     // 3 Turrets
     turretsRef.current = [
-      { id: 'left', x: 40, y: GAME_HEIGHT - 60, ammo: 20, maxAmmo: 20, destroyed: false },
-      { id: 'middle', x: GAME_WIDTH / 2, y: GAME_HEIGHT - 60, ammo: 40, maxAmmo: 40, destroyed: false },
-      { id: 'right', x: GAME_WIDTH - 40, y: GAME_HEIGHT - 60, ammo: 20, maxAmmo: 20, destroyed: false },
+      { id: 'left', x: 40, y: GAME_HEIGHT - 60, ammo: 60, maxAmmo: 60, destroyed: false },
+      { id: 'middle', x: GAME_WIDTH / 2, y: GAME_HEIGHT - 60, ammo: 120, maxAmmo: 120, destroyed: false },
+      { id: 'right', x: GAME_WIDTH - 40, y: GAME_HEIGHT - 60, ammo: 60, maxAmmo: 60, destroyed: false },
     ];
 
     // Stars
@@ -413,6 +460,27 @@ export default function App() {
           const dy = enemy.y - exp.y;
           if (dx * dx + dy * dy < rSq) {
             scoreGained += SCORE_PER_KILL;
+            ufosDestroyedRef.current++;
+
+            // Spawn coin
+            fallingCoinsRef.current.push({
+              id: `coin-${enemy.id}-${time}`,
+              x: enemy.x,
+              y: enemy.y,
+              vy: 2
+            });
+
+            // Angel encouragement
+            if (ufosDestroyedRef.current % 5 === 0) {
+              angelMessagesRef.current.push({
+                id: `angel-${time}`,
+                text: TRANSLATIONS[lang].angel,
+                x: GAME_WIDTH - 200,
+                y: 100 + Math.random() * 200,
+                alpha: 1
+              });
+            }
+
             chainExplosions.push({
               id: `exp-c-${enemy.id}-${time}-${Math.random()}`,
               x: enemy.x,
@@ -433,22 +501,39 @@ export default function App() {
         explosionsRef.current.push(...chainExplosions);
       }
 
+      // Update Coins
+      fallingCoinsRef.current = fallingCoinsRef.current.filter(coin => {
+        coin.y += coin.vy;
+        if (coin.y >= GAME_HEIGHT - 30) {
+          coinsTotalRef.current += COIN_VALUE;
+          setCoinScore(coinsTotalRef.current);
+          return false;
+        }
+        return true;
+      });
+
+      // Update Angel Messages
+      angelMessagesRef.current = angelMessagesRef.current.filter(msg => {
+        msg.y -= 0.8;
+        msg.alpha -= 0.008;
+        return msg.alpha > 0;
+      });
+
+      // Update Solar Flash
+      if (solarFlashRef.current > 0) {
+        solarFlashRef.current -= 0.02;
+      }
+
       if (scoreGained > 0) {
         scoreRef.current += scoreGained;
         setScore(scoreRef.current);
-      }
-
-      // Update UFO
-      if (ufoActiveRef.current) {
-        ufoXRef.current += 12;
-        if (ufoXRef.current > GAME_WIDTH + 150) ufoActiveRef.current = false;
       }
 
       // Check Win/Loss/Transition
       let nextState: 'playing' | 'win' | 'lose' | 'transition' = 'playing';
       if (scoreRef.current >= WIN_SCORE) {
         nextState = 'win';
-      } else if (turretsRef.current.every(t => t.destroyed)) {
+      } else if (turretsRef.current.every(t => t.destroyed) || citiesRef.current.every(c => c.destroyed)) {
         nextState = 'lose';
       } else if (enemiesSpawnedInLevel.current >= totalEnemiesInLevel.current && enemiesRef.current.length === 0 && explosionsRef.current.length === 0) {
         nextState = 'transition';
@@ -496,9 +581,20 @@ export default function App() {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Draw Ground
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, GAME_HEIGHT - 20, GAME_WIDTH, 20);
+    // Draw Ground (Earth Arc)
+    ctx.fillStyle = '#1e3a8a';
+    ctx.beginPath();
+    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1050, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Earth Atmosphere Glow
+    const earthGlow = ctx.createRadialGradient(GAME_WIDTH/2, GAME_HEIGHT + 1000, 1050, GAME_WIDTH/2, GAME_HEIGHT + 1000, 1100);
+    earthGlow.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+    earthGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = earthGlow;
+    ctx.beginPath();
+    ctx.arc(GAME_WIDTH / 2, GAME_HEIGHT + 1000, 1100, 0, Math.PI * 2);
+    ctx.fill();
 
     // Draw Cities
     citiesRef.current.forEach(city => {
@@ -507,28 +603,44 @@ export default function App() {
         ctx.fillRect(city.x - 15, city.y, 30, 20);
         ctx.fillStyle = '#60a5fa';
         ctx.fillRect(city.x - 10, city.y - 10, 20, 10);
+        
+        // City Lights
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(city.x - 8, city.y - 5, 4, 4);
+        ctx.fillRect(city.x + 4, city.y - 5, 4, 4);
       } else {
-        ctx.fillStyle = '#451a03';
+        ctx.fillStyle = '#1e293b';
         ctx.fillRect(city.x - 15, city.y + 10, 30, 10);
       }
     });
 
     // Draw Turrets
+    const turretFlash = Math.sin(performance.now() / 100) > 0;
     turretsRef.current.forEach(turret => {
       if (!turret.destroyed) {
-        ctx.fillStyle = '#10b981';
+        // High-tech base
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(turret.x - 25, turret.y + 10, 50, 15);
+        
+        // Flashing Core
+        ctx.fillStyle = turretFlash ? '#38bdf8' : '#0369a1';
         ctx.beginPath();
-        ctx.moveTo(turret.x - 20, turret.y + 20);
-        ctx.lineTo(turret.x + 20, turret.y + 20);
-        ctx.lineTo(turret.x, turret.y - 10);
-        ctx.closePath();
+        ctx.arc(turret.x, turret.y + 10, 10, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Cannon
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.moveTo(turret.x, turret.y + 10);
+        ctx.lineTo(turret.x, turret.y - 20);
+        ctx.stroke();
 
         // Ammo indicator
         ctx.fillStyle = '#fff';
-        ctx.font = '12px monospace';
+        ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(turret.ammo.toString(), turret.x, turret.y + 35);
+        ctx.fillText(turret.ammo.toString(), turret.x, turret.y + 45);
       } else {
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
@@ -537,64 +649,104 @@ export default function App() {
       }
     });
 
-    // Draw Enemies
+    // Draw Enemies (UFOs)
     enemiesRef.current.forEach(enemy => {
-      const angle = Math.atan2(enemy.targetY - enemy.startY, enemy.targetX - enemy.startX);
-      
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
-      ctx.rotate(angle + Math.PI / 2);
-
-      // Rocket Body
+      
+      // UFO Body (Doubled Size)
+      const ufoSize = 16;
       ctx.fillStyle = '#94a3b8';
       ctx.beginPath();
-      ctx.moveTo(0, -10);
-      ctx.lineTo(4, 5);
-      ctx.lineTo(-4, 5);
-      ctx.closePath();
+      ctx.ellipse(0, 0, ufoSize * 2, ufoSize * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
-
-      // Fins
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(-6, 2, 2, 4);
-      ctx.fillRect(4, 2, 2, 4);
-
-      // Flame
-      const flameHeight = 5 + Math.random() * 10;
-      const flameGrad = ctx.createLinearGradient(0, 5, 0, 5 + flameHeight);
-      flameGrad.addColorStop(0, '#fbbf24');
-      flameGrad.addColorStop(1, 'transparent');
-      ctx.fillStyle = flameGrad;
+      
+      // UFO Dome
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.8)';
       ctx.beginPath();
-      ctx.moveTo(-3, 5);
-      ctx.lineTo(3, 5);
-      ctx.lineTo(0, 5 + flameHeight);
-      ctx.closePath();
+      ctx.arc(0, -ufoSize * 0.3, ufoSize * 0.8, 0, Math.PI, true);
       ctx.fill();
+      
+      // UFO Lights
+      const lightTime = performance.now() / 500; // Slower transition
+      for (let i = 0; i < 4; i++) {
+        // More solid colors, less "flickery"
+        ctx.fillStyle = Math.sin(lightTime + i) > 0 ? '#ef4444' : '#f87171';
+        ctx.beginPath();
+        ctx.arc(-ufoSize + i * (ufoSize * 0.6), ufoSize * 0.2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       ctx.restore();
       
-      // Trail
-      ctx.strokeStyle = 'rgba(249, 115, 22, 0.3)';
-      ctx.setLineDash([5, 5]);
+      // Trail removed to avoid ghosting
+    });
+
+    // Draw Coins
+    fallingCoinsRef.current.forEach(coin => {
+      ctx.fillStyle = '#fbbf24';
       ctx.beginPath();
-      ctx.moveTo(enemy.startX, enemy.startY);
-      ctx.lineTo(enemy.x, enemy.y);
+      ctx.arc(coin.x, coin.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.fillStyle = '#d97706';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('$', coin.x, coin.y + 4);
+    });
+
+    // Draw Angel Messages (Luffy)
+    angelMessagesRef.current.forEach(msg => {
+      ctx.save();
+      ctx.globalAlpha = msg.alpha;
+      
+      // Draw Luffy-like icon (Simplified)
+      const lx = msg.x - 40;
+      const ly = msg.y - 20;
+      
+      // Straw Hat
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, 25, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ef4444'; // Red band
+      ctx.fillRect(lx - 15, ly - 5, 30, 3);
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(lx, ly - 5, 12, Math.PI, 0);
+      ctx.fill();
+
+      // Face
+      ctx.fillStyle = '#ffedd5';
+      ctx.beginPath();
+      ctx.arc(lx, ly + 10, 12, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Smile
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(lx, ly + 12, 6, 0.2, Math.PI - 0.2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.shadowColor = '#000';
+      ctx.shadowBlur = 4;
+      ctx.fillText(msg.text, msg.x, msg.y);
+      ctx.restore();
     });
 
     // Draw Missiles
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
     missilesRef.current.forEach(missile => {
-      ctx.beginPath();
-      ctx.moveTo(missile.startX, missile.startY);
-      ctx.lineTo(missile.x, missile.y);
-      ctx.stroke();
+      // Trail removed to avoid ghosting
 
       // Target X
       ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(missile.targetX - 5, missile.targetY - 5);
       ctx.lineTo(missile.targetX + 5, missile.targetY + 5);
@@ -605,46 +757,39 @@ export default function App() {
 
     // Draw Explosions
     explosionsRef.current.forEach(exp => {
+      ctx.save();
+      ctx.globalAlpha = exp.alpha;
+      
+      // Core
+      const grad = ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, exp.radius);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(0.3, '#fbbf24');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${exp.alpha * 0.8})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(255, 100, 0, ${exp.alpha})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      ctx.restore();
     });
 
-    // Draw UFO
-    if (ufoActiveRef.current) {
-      const x = ufoXRef.current;
-      const y = 50;
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.ellipse(x, y, 40, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#60a5fa';
-      ctx.beginPath();
-      ctx.arc(x, y - 5, 15, 0, Math.PI, true);
-      ctx.fill();
+    // Solar Flash
+    if (solarFlashRef.current > 0) {
+      ctx.save();
+      ctx.fillStyle = `rgba(255, 255, 200, ${solarFlashRef.current})`;
+      ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
       
-      // UFO Lights
-      const time = performance.now() / 100;
-      for (let i = 0; i < 5; i++) {
-        ctx.fillStyle = Math.sin(time + i) > 0 ? '#fbbf24' : '#78350f';
-        ctx.beginPath();
-        ctx.arc(x - 25 + i * 12.5, y + 5, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Beam
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+      // Draw Sun in the middle
+      const sunX = GAME_WIDTH / 2;
+      const sunY = GAME_HEIGHT / 3;
+      const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 150);
+      sunGrad.addColorStop(0, `rgba(255, 255, 255, ${solarFlashRef.current})`);
+      sunGrad.addColorStop(0.5, `rgba(255, 255, 0, ${solarFlashRef.current * 0.8})`);
+      sunGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = sunGrad;
       ctx.beginPath();
-      ctx.moveTo(x - 20, y + 15);
-      ctx.lineTo(x + 20, y + 15);
-      ctx.lineTo(x + 60, GAME_HEIGHT);
-      ctx.lineTo(x - 60, GAME_HEIGHT);
-      ctx.closePath();
+      ctx.arc(sunX, sunY, 150, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     }
   };
 
@@ -682,6 +827,10 @@ export default function App() {
             <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.score}</span>
             <span className="text-xl font-mono font-medium text-emerald-400">{score.toString().padStart(5, '0')}</span>
           </div>
+          <div className="hidden md:flex flex-col items-end">
+            <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">{t.coins}</span>
+            <span className="text-xl font-mono font-medium text-yellow-400">{coins.toString().padStart(5, '0')}</span>
+          </div>
           <button 
             onClick={() => setLang(l => l === 'zh' ? 'en' : 'zh')}
             className="p-2 hover:bg-white/5 rounded-full transition-colors border border-white/10"
@@ -704,8 +853,14 @@ export default function App() {
 
         {/* HUD Mobile */}
         <div className="absolute top-4 left-4 md:hidden flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-white/50 font-bold">{t.score}</span>
-          <span className="text-lg font-mono font-medium text-emerald-400">{score}</span>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-widest text-white/50 font-bold">{t.score}</span>
+            <span className="text-lg font-mono font-medium text-emerald-400">{score}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-widest text-white/50 font-bold">{t.coins}</span>
+            <span className="text-lg font-mono font-medium text-yellow-400">{coins}</span>
+          </div>
         </div>
 
         {/* Level Display */}
@@ -719,13 +874,19 @@ export default function App() {
         {/* UFO Status */}
         {gameState === 'playing' && (
           <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all ${ufoCooldownRemaining === 0 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-white/5 border-white/10 text-white/40'}`}>
-              <Zap className={`w-4 h-4 ${ufoCooldownRemaining === 0 ? 'animate-pulse' : ''}`} />
-              <span className="text-xs font-bold uppercase tracking-wider">UFO [E]</span>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerUfo();
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all cursor-pointer hover:scale-105 active:scale-95 ${ufoCooldownRemaining === 0 ? 'bg-orange-500/20 border-orange-500/40 text-orange-400' : 'bg-white/5 border-white/10 text-white/40'}`}
+            >
+              <Sun className={`w-4 h-4 ${ufoCooldownRemaining === 0 ? 'animate-spin-slow' : ''}`} />
+              <span className="text-xs font-bold uppercase tracking-wider">SOLAR</span>
               {ufoCooldownRemaining > 0 && (
                 <span className="font-mono text-xs ml-1">{ufoCooldownRemaining}s</span>
               )}
-            </div>
+            </button>
           </div>
         )}
 
